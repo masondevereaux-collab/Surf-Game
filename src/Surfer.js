@@ -84,7 +84,7 @@ export class Surfer {
 
     // Enter barrel when high on face AND wave is tall enough to have an overhang
     // (only possible near the A-frame peak — shoulders are too small to barrel)
-    if (this.faceT < 0.30 && wy > 3.5) {
+    if (this.faceT < 0.30 && wy > 3.5 && Math.abs(this.x - this.wave.breakX) < 18) {
       this._setState(STATE.BARREL);
       this.barrelTime = 0;
       return;

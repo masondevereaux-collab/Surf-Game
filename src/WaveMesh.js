@@ -34,6 +34,7 @@ precision highp float;
 #define G   9.81
 
 uniform float uTime;
+uniform float uBreakX;
 
 varying vec3  vWorldPos;
 varying vec3  vNormal;
@@ -68,19 +69,18 @@ float waveH(float lz, float xp) {
 }
 
 // ── Full displacement: returns (finalY, dZ) ───────────────────────────────────
-// dZ  : lip thrown shoreward  (power-4 forward throw + concave bowl)
-// dY  : lip curled downward   (smoothstep fold, only top 30 % of wave)
-// Together they form a closing tube at the A-frame peak.
-vec2 displace(float lz_s, float xp_s) {
+// bMask: 0..1, peaks at the traveling break front
+// fMask: 1 = unbroken face ahead of break, 0 = collapsed behind break
+vec2 displace(float lz_s, float xp_s, float bMask, float fMask) {
   float h   = waveH(lz_s, xp_s);
   float hN  = clamp(h / 6.5, 0.0, 1.0);
 
-  // Forward throw: power-4 explodes near the tip; sine keeps mid-face concave
-  float dz  = pow(hN, 4.0) * 20.0 - sin(PI * hN) * 2.2;
+  // Forward throw only at break front; concave bowl on unbroken face
+  float dz  = pow(hN, 4.0) * 20.0 * bMask - sin(PI * hN) * 2.2 * fMask;
 
-  // Downward fold: starts at hN=0.82 (later = higher ceiling for surfer)
+  // Downward fold only at break front
   float tf  = smoothstep(0.82, 1.0, hN);
-  float dy  = -tf * tf * 6.0;
+  float dy  = -tf * tf * 6.0 * bMask;
 
   return vec2(h + dy, dz);  // .x = finalY,  .y = dZ offset
 }
@@ -91,8 +91,14 @@ void main() {
   float lz    = pos.z;
   float xp    = xPeak(origX);
 
+  // ── Break front ───────────────────────────────────────────────────────────
+  // relX > 0 = ahead of break (unbroken face), relX < 0 = already broken
+  float relX       = origX - uBreakX;
+  float barrelMask  = exp(-pow(relX / 11.0, 2.0));   // barrel zone ~±11m wide
+  float faceMask    = smoothstep(-12.0, 4.0, relX);  // 1 = fresh, 0 = collapsed
+
   // ── Main displacement ─────────────────────────────────────────────────────
-  vec2 d  = displace(lz, xp);
+  vec2 d  = displace(lz, xp, barrelMask, faceMask);
   pos.y   = d.x;
   pos.z   = lz + d.y;
 
@@ -109,18 +115,17 @@ void main() {
          + 0.05 * sin(kC * (0.7*lz - 0.7*origX)   - wC*0.85 * uTime + 4.1);
 
   // ── 2-D finite-difference normals ─────────────────────────────────────────
-  // Both the forward-throw (dZ) AND the downward-fold (dY) affect the normals.
   float eps = 0.55;
 
-  // Z-direction tangent
-  vec2 dZP  = displace(lz+eps, xp);
-  vec2 dZM  = displace(lz-eps, xp);
-  float TZ_Y = dZP.x - dZM.x;                      // dY/dlz  (×2eps)
-  float TZ_Z = (2.0*eps) + (dZP.y - dZM.y);        // dZ/dlz  (×2eps)
+  // Z-direction tangent (same barrelMask — eps is tiny vs. barrel width ~11m)
+  vec2 dZP  = displace(lz+eps, xp, barrelMask, faceMask);
+  vec2 dZM  = displace(lz-eps, xp, barrelMask, faceMask);
+  float TZ_Y = dZP.x - dZM.x;
+  float TZ_Z = (2.0*eps) + (dZP.y - dZM.y);
 
   // X-direction tangent
-  vec2 dXP  = displace(lz, xPeak(origX+eps));
-  vec2 dXM  = displace(lz, xPeak(origX-eps));
+  vec2 dXP  = displace(lz, xPeak(origX+eps), barrelMask, faceMask);
+  vec2 dXM  = displace(lz, xPeak(origX-eps), barrelMask, faceMask);
   float TX_Y = dXP.x - dXM.x;
   float TX_Z = dXP.y - dXM.y;
 
@@ -134,18 +139,19 @@ void main() {
   // Raw h (before fold) — used for colour/foam decisions
   float h_raw = waveH(lz, xp);
 
-  // Foam: lip spray peels outward from A-frame center, plus base whitewash
-  float foamTravel = abs(origX) * 0.09 - uTime * 1.8;
+  // Foam: lip spray at break front + whitewash behind the broken section
+  float foamTravel = relX * 0.09 - uTime * 1.8;
   float foamPatch  = smoothstep(0.2, 0.8, 0.5 + 0.5*sin(foamTravel))
                    * smoothstep(0.2, 0.8, 0.5 + 0.5*sin(foamTravel*1.7 + 2.1));
-  float lipFoam    = smoothstep(5.0, 6.5, h_raw) * (0.55 + 0.45*foamPatch);
-  float lipSpray   = smoothstep(6.0, 6.5, h_raw) * 0.9;
-  float peakFoam   = smoothstep(6.2, 6.5, h_raw) * smoothstep(18.0, 0.0, abs(origX)) * 0.8;
-  float baseWash   = smoothstep(2.8, 0.4, h_raw) * smoothstep(-1.5, 3.5, lz) * 0.48;
-  vFoam = clamp(lipFoam + lipSpray + peakFoam + baseWash, 0.0, 1.0);
+  float lipFoam    = smoothstep(5.0, 6.5, h_raw) * (0.55 + 0.45*foamPatch) * barrelMask * 2.5;
+  float lipSpray   = smoothstep(6.0, 6.5, h_raw) * barrelMask * 2.0;
+  // Whitewash spreads behind the break (relX < 0 = already broken)
+  float whitewash  = smoothstep(4.0, -18.0, relX) * smoothstep(4.8, 1.5, h_raw) * 0.70;
+  float baseWash   = smoothstep(2.8, 0.4, h_raw) * smoothstep(-1.5, 3.5, lz) * 0.3 * barrelMask;
+  vFoam = clamp(lipFoam + lipSpray + whitewash + baseWash, 0.0, 1.0);
 
-  // Barrel glow — strongest inside the tube (high raw h, near center peak)
-  vBarrel = smoothstep(4.5, 6.2, h_raw);
+  // Barrel glow — strongest inside the tube at the traveling break front
+  vBarrel = smoothstep(4.5, 6.2, h_raw) * barrelMask;
 
   vDepth  = clamp(h_raw / 6.5, 0.0, 1.0);
   vFaceH  = crestH(lz) * zEnv(lz) * xp;
@@ -248,10 +254,12 @@ void main(){
 export class WaveMesh {
   constructor(scene) {
     this.time      = 0;
+    this.breakX    = -40;   // starts left of peak, travels right at A_PEEL_SPEED
     this.breakDist = 9999;
 
     this.uniforms = {
       uTime:     { value: 0 },
+      uBreakX:   { value: -40 },
       uSunDir:   { value: new THREE.Vector3(0.3, 0.8, -0.35).normalize() },
       uSunColor: { value: new THREE.Color(1.0, 0.92, 0.68) },
       uSkyColor: { value: new THREE.Color(0.30, 0.54, 0.85) },
@@ -311,8 +319,15 @@ export class WaveMesh {
   }
 
   update(dt) {
-    this.time += dt;
-    this.uniforms.uTime.value = this.time;
+    this.time  += dt;
+    this.breakX = -40 + A_PEEL_SPEED * this.time;
+    // Reset wave when break has fully passed so it loops
+    if (this.breakX > 110) {
+      this.time   = 0;
+      this.breakX = -40;
+    }
+    this.uniforms.uTime.value   = this.time;
+    this.uniforms.uBreakX.value = this.breakX;
   }
 
   updateCameraPos(pos) {
