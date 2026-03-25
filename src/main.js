@@ -13,8 +13,22 @@ import { Environment }  from './Environment.js';
 import { Input }        from './Input.js';
 import { UI }           from './UI.js';
 
+// ── WebGL check ───────────────────────────────────────────────────────────────
+(function checkWebGL() {
+  const testCanvas = document.createElement('canvas');
+  const gl = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+  if (!gl) {
+    const el = document.getElementById('error-display');
+    if (el) {
+      el.style.display = 'block';
+      el.textContent = 'WebGL is not available in your browser.\n\nFirefox fix:\n1. Go to about:config\n2. Set webgl.disabled = false\n3. Set webgl.force-enabled = true\n4. Restart Firefox\n\nAlso: Settings → General → Performance → enable hardware acceleration.';
+    }
+    throw new Error('WebGL not supported');
+  }
+})();
+
 // ── Renderer ──────────────────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, failIfMajorPerformanceCaveat: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;

@@ -84,7 +84,7 @@ export class Surfer {
 
     // Enter barrel when high on face AND wave is tall enough to have an overhang
     // (only possible near the A-frame peak — shoulders are too small to barrel)
-    if (this.faceT < 0.30 && wy > 4.2) {
+    if (this.faceT < 0.30 && wy > 3.5) {
       this._setState(STATE.BARREL);
       this.barrelTime = 0;
       return;
@@ -100,8 +100,8 @@ export class Surfer {
   _barrel(dt, input, waveTime) {
     this.barrelTime += dt;
 
-    // Player steers only — no auto-advance on static wave
-    this.x += input.horizontal * 3.0 * dt;
+    // Player steers — speed carries through so surfer can race the barrel
+    this.x += input.horizontal * (this.speed + 2) * dt;
     this.x      = Math.max(-120, Math.min(120, this.x));
     this.faceT += input.vertical * 1.2 * dt;
     this.faceT  = Math.max(0.08, Math.min(0.85, this.faceT));

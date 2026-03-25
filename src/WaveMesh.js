@@ -76,10 +76,10 @@ vec2 displace(float lz_s, float xp_s) {
   float hN  = clamp(h / 6.5, 0.0, 1.0);
 
   // Forward throw: power-4 explodes near the tip; sine keeps mid-face concave
-  float dz  = pow(hN, 4.0) * 12.0 - sin(PI * hN) * 2.2;
+  float dz  = pow(hN, 4.0) * 20.0 - sin(PI * hN) * 2.2;
 
-  // Downward fold: starts at hN=0.70, maximum at hN=1.0
-  float tf  = smoothstep(0.70, 1.0, hN);
+  // Downward fold: starts at hN=0.82 (later = higher ceiling for surfer)
+  float tf  = smoothstep(0.82, 1.0, hN);
   float dy  = -tf * tf * 6.0;
 
   return vec2(h + dy, dz);  // .x = finalY,  .y = dZ offset
